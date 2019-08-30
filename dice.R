@@ -1,3 +1,5 @@
+library(purrr)
+library(ggplot2)
 # Set up dice sides
 sides <- list(
     # Positive dice - boost, ability, proficiency
@@ -42,23 +44,74 @@ threat <- list(
 
 despair <- list("c" = c(rep(0, 11), 1))
 
-
+`%||%` <- rlang::`%||%`
 # Functions ---------------------------------------------------------------
 roll_die <- function(die) {
     side <- sample(sides[[die]], 1)
     c(
         # Positive results
-        .suc = successes[[die]][[side]],
-        .adv = advantages[[die]][[side]],
-        .tri = triumphs[[die]][[side]],
+        suc = successes[[die]][[side]] %||% 0,
+        adv = advantages[[die]][[side]] %||% 0,
+        tri = triumphs[[die]][[side]] %||% 0,
 
         # Negative results
-        .fail = failures[[die]][[side]],
-        .thre = threat[[die]][[side]],
-        .desp = despair[[die]][[side]]
+        fail = failures[[die]][[side]] %||% 0,
+        thre = threat[[die]][[side]] %||% 0,
+        desp = despair[[die]][[side]] %||% 0
     )
+}
+
+roll_dice <- function(die, times) {
+    if ( times == 0 ) {
+        c(
+            # Positive results
+            suc = 0,
+            adv = 0,
+            tri = 0,
+            # Negative results
+            fail = 0,
+            thre = 0,
+            desp = 0
+        )
+    } else {
+        .out <- purrr::map(seq_len(times), ~roll_die(die))
+        tapply(unlist(.out), names(unlist(.out)), sum, default = 0L)
+    }
 }
 
 
 
+roll_pool <- function(b = 0, a = 0, p = 0, s = 0, d = 0, c = 0) {
+    dice <- list(b, a, p, s, d, c)
+    dice <- purrr::set_names(dice, c("b", "a", "p", "s", "d", "c"))
+    dice %>%
+        purrr::imap(~roll_dice(.y, .x)) %>%
+        purrr::map(t) %>%
+        purrr::map_dfr(tibble::as_tibble) %>%
+        colSums()
+}
 
+process_pool <- function(pool_results) {
+    pool <- pool_results
+    net_success <- pool[["suc"]] - pool[["fail"]]
+    net_adv <- pool[["adv"]] - pool[["thre"]]
+    c(
+        success = net_success,
+        advantage = net_adv,
+        triumph = pool[["tri"]],
+        despair = pool[["desp"]]
+        )
+}
+
+simulate_pool <- function(times = 100, b = 0, a = 0, p = 0, s = 0, d = 0, c = 0) {
+    times <- seq_len(times)
+    pools <- purrr::map(times, ~roll_pool(b, c, p, s, d, c))
+    processed <- purrr::map(pools, process_pool)
+    transf <- purrr::map(processed, t)
+    purrr::map_dfr(transf, tibble::as_tibble)
+}
+
+res <- simulate_pool(1000, a = 2, p = 2, s = 1, d = 2, c = 1)
+ggplot(res, aes(success, fill = success > 0)) +
+    geom_density() +
+    geom_vline(xintercept = 0)
