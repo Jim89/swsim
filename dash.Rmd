@@ -1,10 +1,10 @@
 ---
-title: "Untitled"
+title: "Never tell me the odds: EotE Dice Simulations"
 runtime: shiny
 output: 
   flexdashboard::flex_dashboard:
-    orientation: columns
-    vertical_layout: fill
+    orientation: rows
+    vertical_layout: scroll
 ---
 
 ```{r global, include=FALSE}
@@ -126,51 +126,135 @@ simulate_pool <- function(times = 100, b = 0, a = 0, p = 0, s = 0, d = 0, c = 0)
 
 ## {.sidebar}
 
-```{r}
+**Positive dice**
+
+```{r positive-dice}
+sliderInput("b", "Boosts (blue):", 0, 6, 0, step = 1)
+sliderInput("a", "Ability (green):", 0, 6, 0, step = 1)
+sliderInput("p", "Proficiency (yellow):", 0, 6, 0, step = 1)
+```
+
+**Negative dice**
+
+```{r negative-dice}
+sliderInput("s", "Setback (black):", 0, 6, 0, step = 1)
+sliderInput("d", "Difficulty (purple):", 0, 6, 0, step = 1)
+sliderInput("c", "Challenge (red):", 0, 6, 0, step = 1)
+```
+
+**Simulations**
+
+```{r sims}
+sliderInput("sims", "Number of rolls::", 100, 1000, 500, step = 100)
 actionButton("simulate", "Simulate!")
-```
-
-
-How many of each dice in your pool?
-
-### Positive dice
-
-```{r}
-sliderInput("b", "Boosts (blue):", 0, 10, 0, step = 1)
-sliderInput("a", "Ability (green):", 0, 10, 0, step = 1)
-sliderInput("p", "Proficiency (yellow):", 0, 10, 0, step = 1)
-```
-
-### Negative dice
-
-```{r}
-sliderInput("s", "Setback (black):", 0, 10, 0, step = 1)
-sliderInput("d", "Difficulty (purple):", 0, 10, 0, step = 1)
-sliderInput("c", "Challenge (red):", 0, 10, 0, step = 1)
 ```
     
 
-##
+## {data-height=400}
 
 ```{r get-results}
 results <- eventReactive(input$simulate, {
-    simulate_pool(10, input$b, input$a, input$p, input$s, input$d, input$c)
+    input$sims %>% 
+        simulate_pool(input$b, input$a, input$p, input$s, input$d, input$c) %>% 
+        dplyr::mutate(
+            so = dplyr::if_else(success > 0, "Success", "Failure"),
+            sa = dplyr::case_when(
+                advantage == 0 ~ "",
+                advantage > 0 ~ "with advantage",
+                TRUE ~ "with threat"
+                ),
+            to = dplyr::if_else(triumph <= 0, "", "and triumph"),
+            do = dplyr::if_else(despair <= 0, "", "and despair"),
+            outcome = stringr::str_trim(
+                stringr::str_squish(
+                    paste(so, sa, to, do)
+                )
+            )
+        ) %>% 
+        dplyr::select(success, advantage, triumph, despair, outcome)
 })
 ```
 
 
-### Results
+### Success vs. failure
 
-```{r}
-renderDataTable({
-    results()
+```{r success-dist}
+renderPlot({
+    req(results())
+    ggplot(results(), aes(success, fill = success > 0)) +
+        geom_histogram(binwidth = 1) +
+        geom_vline(xintercept = 0) +
+        labs(
+            x = "Failure | Success",
+            y = "",
+            caption = "Positive values are net succcess, zero and negative values are net failures."
+        ) +
+        theme(legend.position = "none")
 })
 ```
 
+### Advantage vs. threat
 
-### Successes vs. failures
-
-```{r}
-
+```{r adv-dist}
+renderPlot({
+    req(results())
+    ggplot(results(), aes(advantage, fill = advantage > 0)) +
+        geom_histogram(binwidth = 1) +
+        geom_vline(xintercept = 0) +
+        labs(
+            x = "Threat | Advantage",
+            y = "",
+            caption = "Positive values are net advantage, negative values are net threat."
+            ) +
+        theme(legend.position = "none")
+})
 ```
 
+##
+
+### Triumph and Despair
+
+```{r}
+renderPlot({
+    req(results())
+    results() %>% 
+        dplyr::select(triumph, despair) %>%
+        tidyr::gather() %>%
+        ggplot(aes(as.factor(value), fill = key)) +
+        geom_bar(position = "dodge") +
+        scale_fill_manual(values = c("triumph" = "yellow", "despair" = "red")) +
+        labs(x = "", y = "") +
+        theme(legend.position = "bottom")
+})
+```
+
+### Net outcome
+
+```{r}
+renderPlot({
+    req(results())
+    outcomes <- results() %>%
+        dplyr::count(outcome) %>% 
+        dplyr::arrange(desc(n)) %>% 
+        dplyr::mutate(outcome = forcats::fct_reorder(outcome, n))
+    
+    ggplot(outcomes, aes(outcome, n)) +
+        geom_col() +
+        coord_flip() +
+        labs(x = "", y = "")
+})    
+```
+
+##
+
+### Table
+
+```{r}
+DT::renderDT(
+    results(),
+    rownames = FALSE,
+    colnames = c("Success/Failure", "Advantage/Threat", "Triumph", "Despair", "Outcome"),
+    options = list(columnDefs = list(list(className = 'dt-center', targets = 0:4))),
+    selection = "none"
+)
+```

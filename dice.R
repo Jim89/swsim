@@ -115,3 +115,28 @@ res <- simulate_pool(1000, a = 2, p = 2, s = 1, d = 2, c = 1)
 ggplot(res, aes(success, fill = success > 0)) +
     geom_density() +
     geom_vline(xintercept = 0)
+
+
+outcomes <- res %>%
+    dplyr::mutate(
+        so = dplyr::if_else(success > 0, "Success", "Failure"),
+        sa = dplyr::case_when(
+            advantage == 0 ~ "",
+            advantage > 0 ~ "with advantage",
+            TRUE ~ "with threat"
+        ),
+        to = dplyr::if_else(triumph <= 0, "", "and triumph"),
+        do = dplyr::if_else(despair <= 0, "", "and despair"),
+        outcome = stringr::str_trim(stringr::str_squish(paste(so, sa, to, do)))
+    ) %>%
+    dplyr::count(outcome) %>%
+    dplyr::arrange(desc(n)) %>%
+    dplyr::mutate(outcome = forcats::fct_reorder(outcome, n))
+
+ggplot(outcomes, aes(outcome, n)) +
+    geom_col() +
+    coord_flip()
+
+
+
+
